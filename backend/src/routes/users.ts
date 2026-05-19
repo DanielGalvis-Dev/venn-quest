@@ -169,18 +169,6 @@ function generateTemporaryPassword(length = 10): string {
 // ======================================================================
 
 /**
- * GET /api/users
- * Retorna la lista de todos los usuarios registrados.
- * Útil para un ranking/leaderboard público.
- */
-router.get("/", async (_req, res) => {
-  const users = await query<UserRow>(
-    "SELECT id, username, current_level, experience_points FROM users",
-  );
-  return res.json({ users });
-});
-
-/**
  * GET /api/users/:id
  * Retorna la información completa de un usuario por ID,
  * incluyendo la cantidad de problemas resueltos y el umbral de XP para subir de nivel.

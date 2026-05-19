@@ -22,7 +22,9 @@ const PORT = process.env.PORT || 3001;
 // Habilitar CORS para permitir peticiones desde el frontend (Vite/React usualmente en puerto 5173 o 3000)
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:3000"],
+    origin: process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(",")
+      : ["http://localhost:5173", "http://localhost:3000"],
     credentials: true,
   }),
 );
@@ -30,10 +32,10 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 // 2. Middleware de Registro (Logging) simple para desarrollo
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  next();
-});
+// app.use((req, _res, next) => {
+//   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+//   next();
+// });
 
 // 3. Montaje de Rutas de la API
 app.use("/api/problem", problemRouter);
