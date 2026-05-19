@@ -84,24 +84,13 @@ DB_PASSWORD=
 DB_NAME=vennquest_db
 
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_MODEL=gemini-flash-latest
 
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USER=
 EMAIL_PASS=
 EMAIL_FROM=
-```
-
----
-
-## 🗄️ Base de datos
-
-Ejecutar en orden:
-
-```
-1. vennquest_db_structure.sql
-2. migrate_solution_json.sql
 ```
 
 ---
@@ -154,8 +143,8 @@ cd frontend && npm run dev
 | Nivel | Rango | XP |
 |-------|-------|----|
 | 1 | 🌱 Aprendiz | 0 |
-| 2 | 🔮 Explorador | 400 |
-| 3 | 👑 Maestro | 900 |
+| 2 | 🔮 Explorador | 500 |
+| 3 | 👑 Maestro | 1700 |
 
 ---
 
