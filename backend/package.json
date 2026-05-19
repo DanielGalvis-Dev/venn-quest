@@ -17,6 +17,7 @@
     "express": "^4.21.1",
     "mysql2": "^3.22.3",
     "nodemailer": "^8.0.7",
+    "openai": "^6.38.0",
     "sql.js": "^1.14.1"
   },
   "devDependencies": {

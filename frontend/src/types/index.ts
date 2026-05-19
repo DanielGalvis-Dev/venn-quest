@@ -184,7 +184,7 @@ export const LEVEL_COLORS: Record<number, string> = {
  * (Ej: Para pasar del Nivel 1 al 2, se requieren 400 XP).
  */
 export const XP_FOR_LEVEL: Record<number, number> = {
-  1: 400,
-  2: 900,
+  1: 500,
+  2: 1700,
   3: 9999, // Límite arbitrario para el nivel máximo (Maestro)
 };

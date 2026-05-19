@@ -8,7 +8,8 @@
  */
 
 import { Router, Request, Response } from "express";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import { get, run, persistDb } from "../db/database";
 
 const router = Router();
@@ -78,8 +79,8 @@ interface UserRow {
  */
 const LEVEL_THRESHOLDS = [
   { level: 1, xp: 0 },
-  { level: 2, xp: 400 },
-  { level: 3, xp: 900 },
+  { level: 2, xp: 500 },
+  { level: 3, xp: 1700 },
 ];
 
 /**
@@ -134,9 +135,26 @@ function checkAnswer(p: ProblemRow, d: VennDistribution): boolean {
       : p.solution_json;
 
   /**
-   * Verifica una zona individual.
+   * Lee un valor del solution_json intentando primero la clave normalizada
+   * y luego la clave legada como fallback.
+   * Niveles 1 y 2 tienen claves viejas en BD (solo_a, ab_solo, etc.).
+   * Nivel 3 ya tiene claves nuevas (onlyA, intersectionAB, etc.).
    *
-   * @param {string[] | undefined} zoneData    — Fichas del usuario en esta zona.
+   * @param {string}           newKey — Clave normalizada (ej. "onlyA")
+   * @param {string | undefined} oldKey — Clave legada   (ej. "solo_a")
+   * @returns {number | undefined}
+   */
+  const solVal = (newKey: string, oldKey?: string): number | undefined => {
+    if (sol[newKey] !== undefined) return sol[newKey];
+    if (oldKey && sol[oldKey] !== undefined) return sol[oldKey];
+    return undefined;
+  };
+
+  /**
+   * Verifica que una zona contenga exactamente la ficha con el valor correcto.
+   * Si correctValue es undefined, la zona no aplica para este nivel → retorna true.
+   *
+   * @param {string[] | undefined} zoneData     — Fichas del usuario en esta zona.
    * @param {number  | undefined}  correctValue — Valor esperado según la solución.
    * @returns {boolean}
    */
@@ -144,10 +162,9 @@ function checkAnswer(p: ProblemRow, d: VennDistribution): boolean {
     zoneData: string[] | undefined,
     correctValue: number | undefined,
   ): boolean => {
-    if (correctValue === undefined) return true; // Zona no usada en este nivel
+    if (correctValue === undefined) return true;
     const arr = zoneData ?? [];
     if (correctValue === 0) {
-      // Acepta zona vacía o ficha con valor "0"
       return arr.length === 0 || (arr.length === 1 && arr[0] === "0");
     }
     return arr.length === 1 && arr[0] === String(correctValue);
@@ -156,30 +173,32 @@ function checkAnswer(p: ProblemRow, d: VennDistribution): boolean {
   // ── Nivel 1: 2 conjuntos, 4 zonas ─────────────────────────────────
   if (p.level === 1) {
     return (
-      checkZone(d.onlyA, sol.onlyA) &&
-      checkZone(d.onlyB, sol.onlyB) &&
-      checkZone(d.intersectionAB, sol.intersectionAB) &&
-      checkZone(d.none, sol.none)
+      checkZone(d.onlyA, solVal("onlyA", "solo_a")) &&
+      checkZone(d.onlyB, solVal("onlyB", "solo_b")) &&
+      checkZone(
+        d.intersectionAB,
+        solVal("intersectionAB", "interseccion_ab"),
+      ) &&
+      checkZone(d.none, solVal("none", "ninguno"))
     );
   }
 
   // ── Nivel 2: 3 conjuntos, 8 zonas ─────────────────────────────────
   if (p.level === 2) {
     return (
-      checkZone(d.onlyA, sol.onlyA) &&
-      checkZone(d.onlyB, sol.onlyB) &&
-      checkZone(d.onlyC, sol.onlyC) &&
-      checkZone(d.intersectionAB, sol.intersectionAB) &&
-      checkZone(d.intersectionAC, sol.intersectionAC) &&
-      checkZone(d.intersectionBC, sol.intersectionBC) &&
-      checkZone(d.intersectionABC, sol.intersectionABC) &&
-      checkZone(d.none, sol.none)
+      checkZone(d.onlyA, solVal("onlyA", "solo_a")) &&
+      checkZone(d.onlyB, solVal("onlyB", "solo_b")) &&
+      checkZone(d.onlyC, solVal("onlyC", "solo_c")) &&
+      checkZone(d.intersectionAB, solVal("intersectionAB", "ab_solo")) &&
+      checkZone(d.intersectionAC, solVal("intersectionAC", "ac_solo")) &&
+      checkZone(d.intersectionBC, solVal("intersectionBC", "bc_solo")) &&
+      checkZone(d.intersectionABC, solVal("intersectionABC", "los_tres")) &&
+      checkZone(d.none, solVal("none", "ninguno"))
     );
   }
 
   // ── Nivel 3: 4 conjuntos, 14 zonas ────────────────────────────────
-  // Incluye 4 exclusivas + 4 pares adyacentes + 4 triples + 1 total + ninguno.
-  // A∩D y B∩C NO existen (círculos diagonalmente opuestos que no se solapan).
+  // BD ya tiene claves normalizadas — no necesita fallback.
   if (p.level === 3) {
     return (
       checkZone(d.onlyA, sol.onlyA) &&
@@ -223,10 +242,19 @@ function buildPrompt(p: ProblemRow, d: VennDistribution): string {
       ? JSON.parse(p.solution_json)
       : p.solution_json;
 
-  /** Formatea un array de fichas para el prompt: ["5"] → "5", [] → "vacío" */
   const fmt = (arr: string[] | undefined) => arr?.join(", ") || "vacío";
 
-  // ── Descripción del intento del usuario según nivel ──
+  /**
+   * Lee un valor con soporte para claves legadas y normalizadas.
+   * Necesario para que Gemini reciba los valores correctos en niveles 1 y 2,
+   * cuya BD aún tiene claves viejas (solo_a, ab_solo, etc.).
+   */
+  const sv = (newKey: string, oldKey?: string): number | string => {
+    if (sol[newKey] !== undefined) return sol[newKey];
+    if (oldKey && sol[oldKey] !== undefined) return sol[oldKey];
+    return "?";
+  };
+
   let userAns: string;
   let correctAns: string;
 
@@ -239,10 +267,10 @@ function buildPrompt(p: ProblemRow, d: VennDistribution): string {
     ].join(" | ");
 
     correctAns = [
-      `Solo A: ${sol.onlyA}`,
-      `Solo B: ${sol.onlyB}`,
-      `A∩B: ${sol.intersectionAB}`,
-      `Ninguno: ${sol.none}`,
+      `Solo A: ${sv("onlyA", "solo_a")}`,
+      `Solo B: ${sv("onlyB", "solo_b")}`,
+      `A∩B: ${sv("intersectionAB", "interseccion_ab")}`,
+      `Ninguno: ${sv("none", "ninguno")}`,
     ].join(" | ");
   } else if (p.level === 2) {
     userAns = [
@@ -257,17 +285,17 @@ function buildPrompt(p: ProblemRow, d: VennDistribution): string {
     ].join(" | ");
 
     correctAns = [
-      `Solo A: ${sol.onlyA}`,
-      `Solo B: ${sol.onlyB}`,
-      `Solo C: ${sol.onlyC}`,
-      `A∩B: ${sol.intersectionAB}`,
-      `A∩C: ${sol.intersectionAC}`,
-      `B∩C: ${sol.intersectionBC}`,
-      `A∩B∩C: ${sol.intersectionABC}`,
-      `Ninguno: ${sol.none}`,
+      `Solo A: ${sv("onlyA", "solo_a")}`,
+      `Solo B: ${sv("onlyB", "solo_b")}`,
+      `Solo C: ${sv("onlyC", "solo_c")}`,
+      `A∩B: ${sv("intersectionAB", "ab_solo")}`,
+      `A∩C: ${sv("intersectionAC", "ac_solo")}`,
+      `B∩C: ${sv("intersectionBC", "bc_solo")}`,
+      `A∩B∩C: ${sv("intersectionABC", "los_tres")}`,
+      `Ninguno: ${sv("none", "ninguno")}`,
     ].join(" | ");
   } else {
-    // Nivel 3 — 14 zonas
+    // Nivel 3 — BD ya tiene claves normalizadas
     userAns = [
       `Solo A: ${fmt(d.onlyA)}`,
       `Solo B: ${fmt(d.onlyB)}`,
@@ -374,14 +402,29 @@ router.post("/", async (req: Request, res: Response) => {
     // ── Generar feedback con Gemini ──────────────────────────────────
     let feedback = "";
     try {
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-      const model = genAI.getGenerativeModel({
-        model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+      // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+      // const model = genAI.getGenerativeModel({
+      //   model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+      // });
+      // const result = await model.generateContent(
+      //   buildPrompt(problem, distribution),
+      // );
+      // feedback = result.response.text();
+      
+      /**
+       * Genera feedback pedagógico usando GPT-4o-mini de OpenAI.
+       * max_tokens 300: suficiente para 3-4 oraciones de feedback
+       * y reduce costo al mínimo por evaluación (~$0.0001).
+       */
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_tokens: 300,
+        messages: [
+          { role: "user", content: buildPrompt(problem, distribution) },
+        ],
       });
-      const result = await model.generateContent(
-        buildPrompt(problem, distribution),
-      );
-      feedback = result.response.text();
+      feedback = completion.choices[0]?.message?.content ?? "";
     } catch (aiErr) {
       // Fallback si Gemini no está disponible: mensaje genérico
       console.error("Gemini error:", aiErr);
